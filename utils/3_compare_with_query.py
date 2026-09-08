@@ -11,11 +11,11 @@ def create_50k_bins(start, end, bin_size=50000):
 
 def make_suffix(matrix):
     suffix_map = {
-        'EAS': '/6',
+        'EAS': '/5',
         'EUR': '/5',
         'SAS': '/5',
-        'AMR': '/6',
-        'AFR': '/5'
+        'AMR': '/4',
+        'AFR': '/7'
     }
     for continent, suffix in suffix_map.items():
         matrix[continent] = matrix[continent].apply(lambda x: f"{x}{suffix}" if x != 0 else "0")

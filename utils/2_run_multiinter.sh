@@ -6,9 +6,9 @@ out_dir=$2
 mkdir -p "$out_dir"
 
 declare -A groups
-groups[AFR]="ESN GWD LWK MSL YRI"
+groups[AFR]="ESN GWD LWK MSL YRI ACB ASW"
 groups[EUR]="CEU FIN GBR IBS TSI"
-groups[AMR]="CLM PEL MXL PUR ACB ASW"
+groups[AMR]="CLM PEL MXL PUR"
 groups[EAS]="CDX CHB CHS JPT KHV"
 groups[SAS]="BEB GIH ITU PJL STU"
 

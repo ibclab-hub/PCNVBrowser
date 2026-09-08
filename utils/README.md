@@ -31,7 +31,7 @@ Example output filenames:
 Each row represents a 50 kb bin:
 | Region             | AFR | EUR | EAS | SAS | AMR |
 |--------------------|-----|-----|-----|-----|-----|
-| chr1:100000-150000 | 2/5 | 1/5 | 0/5 | 0/5 | 1/6 |
+| chr1:100000-150000 | 2/7 | 1/5 | 0/5 | 0/5 | 1/4 |
 
 
 - Each cell shows the number of populations (out of N) within each continent that have a CNV overlapping the bin.

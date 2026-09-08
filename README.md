@@ -11,8 +11,13 @@ It integrates CNV datasets from multiple tools and populations, enabling dynamic
 
 ## This repository contains:
 
-- Scripts for CNV calling, integrating, and frequency calculation
-- Application-specific CNV datasets and analysis scripts
+- `CNV_calling_pipelines/` — CNV calling workflows for the four callers (cn.MOPS, CNVkit, Control-FREEC, readDepth)
+- `CNV_Integration_Pipeline/` — integration of per-tool calls into population-level call-set support frequencies
+- `Carrier_Frequency/` — individual-based carrier frequency calculation (DEL/DUP/ALL, tool-support thresholds)
+- `Validation_Concordance/` — cross-caller and cross-resolution concordance, external truth-set benchmarking, and 1000 Genomes population-level concordance
+- `Applications/` — analysis scripts for Applications 1-3 (chr8 carrier-frequency comparison, PD CNV filtering, Korean-specific CNV comparison)
+- `Application_data/` — CNV datasets used as inputs for Applications 2 and 3
+- `utils/` — general-purpose utility for summarizing user-defined region overlap across continental population groups
 
 ---
 

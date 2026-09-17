@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-# Role: Computes size-stratified recall/precision by truth-call size bin (Supplementary Table S6).
+"""
+recall_by_truth_size.py
+
+DEL recall이 낮게 나온 게 "caller 성능이 나빠서"인지 "truth set에 caller가
+애초에 탐지 못하는 초소형 변이가 압도적으로 많아서(size mismatch)"인지
+구분하기 위해, truth DEL을 크기 구간별로 쪼개서 recall을 따로 계산.
+
+구간(기본): 50-500bp, 500bp-1kb, 1-5kb, 5-25kb, >=25kb
+(PCNVBrowser 최소 bin이 5000bp인 걸 감안해 5kb를 기준선 중 하나로 포함)
+
+사용 예:
+  python3 recall_by_truth_size.py \
+      --truth-dir truth_beds \
+      --data-dir /var/www/html/PCNVBrowser/data/samples \
+      --samples HG00438,HG00621,...,NA12878 \
+      --resolution 25000 \
+      --tool READDEPTH \
+      --out-dir ./size_stratified_results
+"""
 import argparse
 import csv
 import os
@@ -9,10 +27,12 @@ import tempfile
 
 SIZE_BINS = [(50, 500), (500, 1000), (1000, 5000), (5000, 25000), (25000, float("inf"))]
 
+
 def bin_label(lo, hi):
     if hi == float("inf"):
         return f">={lo}bp"
     return f"{lo}-{hi}bp"
+
 
 def find_raw_bed(data_dir, sample, tool, resolution):
     sample_dir = os.path.join(data_dir, sample)
@@ -21,6 +41,7 @@ def find_raw_bed(data_dir, sample, tool, resolution):
     else:
         path = os.path.join(sample_dir, f"{tool}.{resolution}.{sample}.sorted.bed")
     return path if os.path.isfile(path) else None
+
 
 def extract_del_sorted(src_path, dst_path):
     rows = []
@@ -36,7 +57,9 @@ def extract_del_sorted(src_path, dst_path):
             out.write(f"{chrom}\t{start}\t{end}\n")
     return len(rows)
 
+
 def split_truth_by_size(truth_del_path, dst_dir, sample):
+    """truth DEL.bed를 크기 구간별로 쪼개서 저장, {bin_label: (path, n)} 반환."""
     bins = {b: [] for b in SIZE_BINS}
     with open(truth_del_path) as f:
         for line in f:
@@ -59,7 +82,9 @@ def split_truth_by_size(truth_del_path, dst_dir, sample):
         out[(lo, hi)] = (path, len(rows))
     return out
 
+
 def split_calls_by_size(call_bed_path, dst_dir, sample, tag):
+    """우리 콜(call_bed_path)을 자기 자신의 크기로 구간별로 쪼갬 -> precision 계산용."""
     bins = {b: [] for b in SIZE_BINS}
     with open(call_bed_path) as f:
         for line in f:
@@ -82,6 +107,7 @@ def split_calls_by_size(call_bed_path, dst_dir, sample, tag):
         out[(lo, hi)] = (path, len(rows))
     return out
 
+
 def reciprocal_frac(path_a, path_b, n_a, frac=0.5):
     if n_a == 0:
         return None
@@ -95,6 +121,35 @@ def reciprocal_frac(path_a, path_b, n_a, frac=0.5):
     n_hit = len([l for l in result.stdout.splitlines() if l.strip()])
     return n_hit / n_a
 
+
+def restrict_to_confident(call_bed, confident_bed, dst_path):
+    """call_bed 중 confident_bed와 조금이라도 겹치는 콜만 남김.
+    Confident 밖 영역은 애초에 truth가 없어 판단 불가능하므로, recall/precision
+    계산에서 부당하게 false positive로 잡히지 않도록 사전 제외.
+    (validate_against_truth.py와 동일한 로직 재사용 — S5/S6 일관성 유지)"""
+    if confident_bed is None or not os.path.isfile(confident_bed):
+        return call_bed
+    try:
+        result = subprocess.run(
+            ["bedtools", "intersect", "-u", "-a", call_bed, "-b", confident_bed],
+            capture_output=True, text=True, check=True,
+        )
+    except subprocess.CalledProcessError:
+        return call_bed
+    lines = [l for l in result.stdout.splitlines() if l.strip()]
+    if not lines:
+        return None
+    with open(dst_path, "w") as f:
+        for l in lines:
+            f.write(l + "\n")
+    return dst_path
+
+
+def find_confident_bed(truth_dir, sample):
+    path = os.path.join(truth_dir, sample, "CONFIDENT.bed")
+    return path if os.path.isfile(path) else None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--truth-dir", required=True)
@@ -102,8 +157,8 @@ def main():
     ap.add_argument("--samples", required=True)
     ap.add_argument("--resolution", default="25000")
     ap.add_argument("--tool", default="READDEPTH",
-                     help="tool raw call recall ( READDEPTH, "
-                          " tool 'ALL_4TOOL_UNION' )")
+                     help="어느 tool의 raw call로 recall 계산할지 (기본 READDEPTH, "
+                          "다른 tool 이름 또는 'ALL_4TOOL_UNION' 지정 가능)")
     ap.add_argument("--reciprocal-frac", type=float, default=0.5)
     ap.add_argument("--out-dir", default="./size_stratified_results")
     args = ap.parse_args()
@@ -159,7 +214,22 @@ def main():
                 call_bed = os.path.join(tmpdir, f"{sample}_{args.tool}_DEL.bed")
                 n_calls = extract_del_sorted(raw, call_bed)
 
-            # (A) recall: truth , (call_bed) 
+            # confident region 제한 (validate_against_truth.py와 동일하게 적용):
+            # confident 밖 콜은 애초에 판단 불가능하므로 recall/precision 계산 전에 제외.
+            confident_bed = find_confident_bed(args.truth_dir, sample)
+            if confident_bed and n_calls > 0:
+                restricted = restrict_to_confident(
+                    call_bed, confident_bed,
+                    os.path.join(tmpdir, f"{sample}_{args.tool}_DEL_conf.bed")
+                )
+                if restricted is None:
+                    n_calls = 0
+                else:
+                    call_bed = restricted
+                    with open(call_bed) as _f:
+                        n_calls = sum(1 for _ in _f)
+
+            # (A) recall: truth를 크기별로 쪼개서, 우리 콜 전체(call_bed) 대비
             for (lo, hi), (truth_bin_path, n_truth_bin) in size_bins.items():
                 label = bin_label(lo, hi)
                 if n_truth_bin == 0 or n_calls == 0:
@@ -169,7 +239,7 @@ def main():
                 writer.writerow([sample, label, n_truth_bin,
                                   n_calls, f"{recall:.4f}" if recall is not None else "NA"])
 
-            # (B) precision: , truth (truth_del) 
+            # (B) precision: 우리 콜을 크기별로 쪼개서, truth 전체(truth_del) 대비
             if n_calls > 0:
                 call_bins = split_calls_by_size(call_bed, tmpdir, sample, args.tool)
                 for (lo, hi), (call_bin_path, n_calls_bin) in call_bins.items():
@@ -182,10 +252,11 @@ def main():
                     writer_p.writerow([sample, label, n_calls_bin, n_truth_total,
                                         f"{precision:.4f}" if precision is not None else "NA"])
 
-            print(f"{sample} ", file=sys.stderr)
+            print(f"{sample} 완료", file=sys.stderr)
 
-    print(f"\nrecall : {out_path}")
-    print(f"precision : {precision_out_path}")
+    print(f"\nrecall 결과: {out_path}")
+    print(f"precision 결과: {precision_out_path}")
+
 
 if __name__ == "__main__":
     main()
